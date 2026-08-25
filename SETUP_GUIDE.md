@@ -139,6 +139,19 @@ OPENAI_BASE_URL = https://api.openai.com/v1 （可不填，默认值）
 
 ---
 
+## 每日邮件内容与数量
+
+每日邮件默认最多包含 3 篇论文和 5 个 GitHub 项目。系统会先抓取更大的候选池，再按相关性和项目 stars 分别筛选；邮件中的数量是实际精选数量，不是候选池总量。
+
+如需调整配额，可在本地 `.env` 或 GitHub Actions 环境中设置：
+
+```
+MAX_DAILY_PAPERS=3
+MAX_DAILY_REPOS=5
+```
+
+每条内容包含真实热度信息：论文显示主题关键词命中数和 arXiv 分类，项目显示 GitHub stars 和主要语言；随后附带“问题、方法或功能、关注价值、适合读者”的中文解读。
+
 ## 第四步：在 GitHub 配置 Secrets
 
 ### 1. 进入你的 GitHub 仓库

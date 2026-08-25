@@ -22,6 +22,8 @@ KEYWORDS = [
 
 class ContentFetcher:
     def __init__(self):
+        self.max_daily_papers = int(os.getenv("MAX_DAILY_PAPERS", "3"))
+        self.max_daily_repos = int(os.getenv("MAX_DAILY_REPOS", "5"))
         self.base_url = os.getenv("OPENAI_BASE_URL") or "https://api.deepseek.com/v1"
         default_model = "deepseek-chat" if "deepseek.com" in self.base_url else "gpt-4o-mini"
         self.model = os.getenv("OPENAI_MODEL") or default_model
@@ -119,8 +121,20 @@ class ContentFetcher:
         unique_repos = {r["url"]: r for r in repos}.values()
         return sorted(unique_repos, key=lambda x: x["stars"], reverse=True)[:15]
     
-    def generate_summary(self, title: str, content: str) -> str:
-        """生成能帮助读者理解和判断价值的中文技术解读。"""
+    def generate_summary(self, item: Dict) -> str:
+        """生成帮助读者快速判断内容价值的结构化中文解读。"""
+        title = item.get("title", item.get("full_name", item.get("name", "")))
+        content = item.get("summary", item.get("description", ""))
+        item_type = item.get("content_type", "内容")
+        context = (
+            f"类型：{item_type}\n"
+            f"标题：{title}\n"
+            f"分类：{item.get('category', '未提供')}\n"
+            f"语言：{item.get('language', '未提供')}\n"
+            f"Stars：{item.get('stars', '未提供')}\n"
+            f"关键词：{', '.join(item.get('keywords', []))}\n"
+            f"原始内容：{content[:1800]}"
+        )
         try:
             response = self.openai_client.chat.completions.create(
                 model=self.model,
@@ -128,17 +142,15 @@ class ContentFetcher:
                     {
                         "role": "system",
                         "content": (
-                            "你是具身智能研究员和工程师。请用中文写一段 180-260 字的技术解读，"
-                            "严格包含四部分：解决的问题、核心方法、主要价值、对具身智能实践的启发。"
-                            "不要复述标题，不要编造论文中没有的信息，语言具体、易懂。"
+                            "你是具身智能领域的研究员、工程师和编辑。请用中文写 120-180 字的解读，"
+                            "严格使用四个短段或四个带标签的句子：解决什么问题、核心方法或功能、为什么值得关注、"
+                            "适合谁阅读或使用。论文要基于摘要，项目要基于描述；不要编造信息，不要复述标题，"
+                            "语言具体、易懂，避免空泛评价。"
                         )
                     },
-                    {
-                        "role": "user",
-                        "content": f"标题：{title}\n\n原始内容：{content[:1800]}"
-                    }
+                    {"role": "user", "content": context}
                 ],
-                max_tokens=420,
+                max_tokens=360,
                 temperature=0.25
             )
             return response.choices[0].message.content.strip()
@@ -171,49 +183,68 @@ class ContentFetcher:
             print(f"Error generating overview with model {self.model}: {e}")
             return "今天的精选内容覆盖具身智能、机器人学习与相关工程工具，建议优先阅读标记为重点推荐的条目。"
 
-    def rank_items(self, papers: List[Dict], repos: List[Dict]) -> List[Dict]:
-        """按相关性和实用价值合并筛选每日精选内容。"""
+    def rank_items(self, papers: List[Dict], repos: List[Dict]) -> Dict[str, List[Dict]]:
+        """按来源分别筛选，避免高数量来源挤占另一类内容。"""
         for paper in papers:
+            keyword_count = len(paper.get("keywords", []))
             paper["content_type"] = "论文"
-            paper["score"] = len(paper.get("keywords", [])) * 10 + (5 if paper["category"] == "cs.RO" else 0)
-        for repo in repos:
-            repo["content_type"] = "项目"
-            repo["score"] = len(repo.get("keywords", [])) * 10 + min(repo.get("stars", 0) / 1000, 10)
+            paper["score"] = keyword_count * 10 + (5 if paper.get("category") == "cs.RO" else 0)
+            paper["heat_label"] = "相关性热度"
+            paper["heat_detail"] = f"命中 {keyword_count} 个主题关键词 · {paper.get('category', '未分类')}"
 
-        combined = papers + repos
-        combined.sort(key=lambda item: (item["score"], item.get("published", ""), item.get("stars", 0)), reverse=True)
-        return combined[:10]
+        for repo in repos:
+            keyword_count = len(repo.get("keywords", []))
+            stars = repo.get("stars", 0)
+            repo["content_type"] = "项目"
+            repo["score"] = keyword_count * 10 + min(stars / 1000, 10)
+            repo["heat_label"] = "社区热度"
+            repo["heat_detail"] = f"⭐ {stars:,} stars · {repo.get('language', 'Unknown')}"
+
+        papers.sort(key=lambda item: (item["score"], item.get("published", "")), reverse=True)
+        repos.sort(key=lambda item: (item["score"], item.get("stars", 0)), reverse=True)
+        selected_papers = papers[:self.max_daily_papers]
+        selected_repos = repos[:self.max_daily_repos]
+        return {"papers": selected_papers, "repos": selected_repos}
 
     def fetch_all(self) -> Dict:
-        """获取并生成每日十条精选内容。"""
+        """获取候选内容并生成按来源配额控制的每日精选。"""
         print("Fetching arXiv papers...")
         papers = self.fetch_arxiv_papers()
 
         print("Fetching GitHub trending...")
         repos = self.fetch_github_trending()
 
-        selected = self.rank_items(papers, repos)
-        selected_papers = [item for item in selected if item["content_type"] == "论文"]
-        selected_repos = [item for item in selected if item["content_type"] == "项目"]
+        selected_by_type = self.rank_items(papers, repos)
+        selected_papers = selected_by_type["papers"]
+        selected_repos = selected_by_type["repos"]
+        selected = selected_papers + selected_repos
 
         print(f"Selected {len(selected)} high-value items")
         print("Generating detailed summaries...")
         for item in selected:
-            item["ai_summary"] = self.generate_summary(
-                item.get("title", item.get("name", "")),
-                item.get("summary", item.get("description", ""))
+            item["ai_summary"] = self.generate_summary(item)
+
+        recommendations = sorted(
+            selected,
+            key=lambda item: item["score"],
+            reverse=True
+        )[:3]
+        for item in recommendations:
+            item["is_recommended"] = True
+            item["recommendation_reason"] = (
+                f"{item['heat_label']}：{item['heat_detail']}，"
+                "同时与订阅主题高度相关。"
             )
 
         print("Generating daily overview...")
         overview = self.generate_overview(selected)
-        for index, item in enumerate(selected[:3]):
-            item["is_recommended"] = True
-            item["recommendation_reason"] = "优先推荐：与今日主题高度相关，且兼具研究价值或实践参考价值。"
 
         return {
             "papers": selected_papers,
             "repos": selected_repos,
             "selected": selected,
+            "recommendations": recommendations,
+            "candidate_counts": {"papers": len(papers), "repos": len(repos)},
             "overview": overview,
             "date": datetime.now().strftime("%Y-%m-%d")
         }

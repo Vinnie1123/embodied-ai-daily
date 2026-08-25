@@ -31,8 +31,9 @@ def main():
     fetcher = ContentFetcher()
     data = fetcher.fetch_all()
     
-    print(f"\n✓ 找到 {len(data['papers'])} 篇相关论文")
-    print(f"✓ 找到 {len(data['repos'])} 个相关项目")
+    candidate_counts = data.get("candidate_counts", {})
+    print(f"\n✓ 候选池：{candidate_counts.get('papers', 0)} 篇论文，{candidate_counts.get('repos', 0)} 个项目")
+    print(f"✓ 邮件精选：{len(data['papers'])} 篇论文，{len(data['repos'])} 个项目")
     
     # 2. 发送邮件
     print("\n📧 正在发送邮件...")

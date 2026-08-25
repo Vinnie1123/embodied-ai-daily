@@ -35,5 +35,7 @@ jobs:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         OPENAI_BASE_URL: https://api.deepseek.com/v1
         OPENAI_MODEL: deepseek-chat
+        MAX_DAILY_PAPERS: 3
+        MAX_DAILY_REPOS: 5
       run: |
         python main.py
