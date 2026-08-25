@@ -21,9 +21,9 @@ KEYWORDS = [
 
 class ContentFetcher:
     def __init__(self):
-        self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        self.base_url = os.getenv("OPENAI_BASE_URL") or "https://api.deepseek.com/v1"
         default_model = "deepseek-chat" if "deepseek.com" in self.base_url else "gpt-4o-mini"
-        self.model = os.getenv("OPENAI_MODEL", default_model)
+        self.model = os.getenv("OPENAI_MODEL") or default_model
         self.openai_client = OpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
             base_url=self.base_url

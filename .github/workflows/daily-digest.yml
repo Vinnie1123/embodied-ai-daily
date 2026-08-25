@@ -33,6 +33,7 @@ jobs:
         SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
         SMTP_PORT: ${{ secrets.SMTP_PORT }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+        OPENAI_BASE_URL: https://api.deepseek.com/v1
+        OPENAI_MODEL: deepseek-chat
       run: |
         python main.py
