@@ -21,9 +21,12 @@ KEYWORDS = [
 
 class ContentFetcher:
     def __init__(self):
+        self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        default_model = "deepseek-chat" if "deepseek.com" in self.base_url else "gpt-4o-mini"
+        self.model = os.getenv("OPENAI_MODEL", default_model)
         self.openai_client = OpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
-            base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+            base_url=self.base_url
         )
     
     def fetch_arxiv_papers(self, days_back=1) -> List[Dict]:
@@ -116,7 +119,7 @@ class ContentFetcher:
         """使用 LLM 生成简短摘要"""
         try:
             response = self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=self.model,
                 messages=[
                     {
                         "role": "system",
@@ -132,7 +135,7 @@ class ContentFetcher:
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
-            print(f"Error generating summary: {e}")
+            print(f"Error generating summary with model {self.model}: {e}")
             return "摘要生成失败"
     
     def fetch_all(self) -> Dict:

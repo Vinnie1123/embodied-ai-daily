@@ -29,6 +29,11 @@ EMAIL_TEMPLATE = """
         .stat-item { display: flex; align-items: center; gap: 5px; }
         .footer { text-align: center; padding: 20px; color: #718096; font-size: 13px; border-top: 1px solid #e2e8f0; margin-top: 40px; }
         .no-content { text-align: center; padding: 40px; color: #718096; }
+        .toc { background: #f8f9fa; padding: 18px 22px; border-radius: 8px; margin-bottom: 30px; }
+        .toc .section-title { font-size: 18px; margin-bottom: 8px; }
+        .toc ol { margin: 0; padding-left: 24px; }
+        .toc a { color: #4c51bf; text-decoration: none; }
+        .toc a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -37,8 +42,16 @@ EMAIL_TEMPLATE = """
         <div class="date">{{ date }}</div>
     </div>
 
+    <div class="toc">
+        <div class="section-title">目录</div>
+        <ol>
+            {% if papers %}<li><a href="#papers">最新论文（{{ papers|length }}）</a></li>{% endif %}
+            {% if repos %}<li><a href="#repos">GitHub 热门项目（{{ repos|length }}）</a></li>{% endif %}
+        </ol>
+    </div>
+
     {% if papers %}
-    <div class="section">
+    <div class="section" id="papers">
         <div class="section-title">📄 最新论文 ({{ papers|length }})</div>
         {% for paper in papers %}
         <div class="item">
@@ -69,7 +82,7 @@ EMAIL_TEMPLATE = """
     {% endif %}
 
     {% if repos %}
-    <div class="section">
+    <div class="section" id="repos">
         <div class="section-title">⭐ GitHub 热门项目 ({{ repos|length }})</div>
         {% for repo in repos %}
         <div class="item">
