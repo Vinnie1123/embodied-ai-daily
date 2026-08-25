@@ -116,55 +116,101 @@ class ContentFetcher:
         return sorted(unique_repos, key=lambda x: x["stars"], reverse=True)[:15]
     
     def generate_summary(self, title: str, content: str) -> str:
-        """使用 LLM 生成简短摘要"""
+        """生成能帮助读者理解和判断价值的中文技术解读。"""
         try:
             response = self.openai_client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {
                         "role": "system",
-                        "content": "你是一个技术摘要助手。用 1-2 句话（中文）概括论文/项目的核心贡献和创新点。语言简洁、专业。"
+                        "content": (
+                            "你是具身智能研究员和工程师。请用中文写一段 180-260 字的技术解读，"
+                            "严格包含四部分：解决的问题、核心方法、主要价值、对具身智能实践的启发。"
+                            "不要复述标题，不要编造论文中没有的信息，语言具体、易懂。"
+                        )
                     },
                     {
                         "role": "user",
-                        "content": f"标题：{title}\n\n内容：{content[:1000]}"
+                        "content": f"标题：{title}\n\n原始内容：{content[:1800]}"
                     }
                 ],
-                max_tokens=150,
-                temperature=0.3
+                max_tokens=420,
+                temperature=0.25
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
             print(f"Error generating summary with model {self.model}: {e}")
-            return "摘要生成失败"
-    
+            return "原始内容可供参考，但 AI 解读暂时生成失败。"
+
+    def generate_overview(self, selected: List[Dict]) -> str:
+        """根据精选内容生成当天的趋势总览。"""
+        digest = "\n".join(
+            f"- {item.get('title', item.get('full_name', item.get('name', '')))}: "
+            f"{item.get('summary', item.get('description', ''))[:500]}"
+            for item in selected
+        )
+        try:
+            response = self.openai_client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "你是具身智能领域编辑。用中文写 3-5 句话总结今天精选资讯的共同趋势、技术重点和读者应该关注的方向，必须基于给定内容，不要泛泛而谈。"
+                    },
+                    {"role": "user", "content": digest}
+                ],
+                max_tokens=300,
+                temperature=0.25
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"Error generating overview with model {self.model}: {e}")
+            return "今天的精选内容覆盖具身智能、机器人学习与相关工程工具，建议优先阅读标记为重点推荐的条目。"
+
+    def rank_items(self, papers: List[Dict], repos: List[Dict]) -> List[Dict]:
+        """按相关性和实用价值合并筛选每日精选内容。"""
+        for paper in papers:
+            paper["content_type"] = "论文"
+            paper["score"] = len(paper.get("keywords", [])) * 10 + (5 if paper["category"] == "cs.RO" else 0)
+        for repo in repos:
+            repo["content_type"] = "项目"
+            repo["score"] = len(repo.get("keywords", [])) * 10 + min(repo.get("stars", 0) / 1000, 10)
+
+        combined = papers + repos
+        combined.sort(key=lambda item: (item["score"], item.get("published", ""), item.get("stars", 0)), reverse=True)
+        return combined[:10]
+
     def fetch_all(self) -> Dict:
-        """获取所有内容"""
+        """获取并生成每日十条精选内容。"""
         print("Fetching arXiv papers...")
         papers = self.fetch_arxiv_papers()
-        
+
         print("Fetching GitHub trending...")
         repos = self.fetch_github_trending()
-        
-        # 为论文生成摘要
-        print("Generating summaries for papers...")
-        for paper in papers[:10]:  # 只为前 10 篇生成摘要，节省 API 调用
-            paper["ai_summary"] = self.generate_summary(
-                paper["title"],
-                paper["summary"]
+
+        selected = self.rank_items(papers, repos)
+        selected_papers = [item for item in selected if item["content_type"] == "论文"]
+        selected_repos = [item for item in selected if item["content_type"] == "项目"]
+
+        print(f"Selected {len(selected)} high-value items")
+        print("Generating detailed summaries...")
+        for item in selected:
+            item["ai_summary"] = self.generate_summary(
+                item.get("title", item.get("name", "")),
+                item.get("summary", item.get("description", ""))
             )
-        
-        # 为 GitHub 项目生成摘要
-        print("Generating summaries for repos...")
-        for repo in repos[:10]:
-            repo["ai_summary"] = self.generate_summary(
-                repo["name"],
-                repo["description"]
-            )
-        
+
+        print("Generating daily overview...")
+        overview = self.generate_overview(selected)
+        for index, item in enumerate(selected[:3]):
+            item["is_recommended"] = True
+            item["recommendation_reason"] = "优先推荐：与今日主题高度相关，且兼具研究价值或实践参考价值。"
+
         return {
-            "papers": papers,
-            "repos": repos,
+            "papers": selected_papers,
+            "repos": selected_repos,
+            "selected": selected,
+            "overview": overview,
             "date": datetime.now().strftime("%Y-%m-%d")
         }
 

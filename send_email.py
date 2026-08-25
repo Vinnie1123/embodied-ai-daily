@@ -34,6 +34,12 @@ EMAIL_TEMPLATE = """
         .toc ol { margin: 0; padding-left: 24px; }
         .toc a { color: #4c51bf; text-decoration: none; }
         .toc a:hover { text-decoration: underline; }
+        .overview { background: #eef2ff; padding: 20px 24px; border-radius: 8px; margin-bottom: 30px; color: #373f66; }
+        .overview p { margin: 0; }
+        .recommendation { border-left-color: #d97706; background: #fffbeb; }
+        .recommendation-badge { display: inline-block; background: #d97706; color: white; padding: 3px 9px; border-radius: 4px; font-size: 12px; margin-bottom: 8px; }
+        .reason { color: #92400e; font-size: 14px; margin: 8px 0 12px; }
+        .empty-note { color: #718096; font-size: 14px; }
     </style>
 </head>
 <body>
@@ -45,77 +51,50 @@ EMAIL_TEMPLATE = """
     <div class="toc">
         <div class="section-title">目录</div>
         <ol>
-            {% if papers %}<li><a href="#papers">最新论文（{{ papers|length }}）</a></li>{% endif %}
-            {% if repos %}<li><a href="#repos">GitHub 热门项目（{{ repos|length }}）</a></li>{% endif %}
+            <li><a href="#overview">今日总览</a></li>
+            {% if selected %}<li><a href="#recommendations">重点推荐（{{ [selected|length, 3]|min }}）</a></li>{% endif %}
+            {% if selected %}<li><a href="#selected">每日精选（{{ selected|length }}）</a></li>{% endif %}
         </ol>
     </div>
 
-    {% if papers %}
-    <div class="section" id="papers">
-        <div class="section-title">📄 最新论文 ({{ papers|length }})</div>
-        {% for paper in papers %}
-        <div class="item">
-            <div class="item-title">
-                <a href="{{ paper.url }}" target="_blank">{{ paper.title }}</a>
-            </div>
-            <div class="meta">
-                📅 {{ paper.published }} | 👥 {{ paper.authors|join(', ') }}{% if paper.authors|length > 3 %} et al.{% endif %} | 🏷️ {{ paper.category }}
-            </div>
-            {% if paper.ai_summary %}
-            <div class="summary">
-                <strong>AI 摘要：</strong>{{ paper.ai_summary }}
-            </div>
-            {% endif %}
-            <div class="keywords">
-                {% for kw in paper.keywords %}
-                <span class="keyword">{{ kw }}</span>
-                {% endfor %}
-            </div>
+    <div class="section" id="overview">
+        <div class="section-title">今日总览</div>
+        <div class="overview">
+            <p>{{ overview or '今日精选内容正在整理中。' }}</p>
         </div>
-        {% endfor %}
     </div>
-    {% else %}
-    <div class="section">
-        <div class="section-title">📄 最新论文</div>
-        <div class="no-content">今日没有匹配的新论文</div>
-    </div>
-    {% endif %}
 
-    {% if repos %}
-    <div class="section" id="repos">
-        <div class="section-title">⭐ GitHub 热门项目 ({{ repos|length }})</div>
-        {% for repo in repos %}
+    {% if selected %}
+    <div class="section" id="recommendations">
+        <div class="section-title">重点推荐</div>
+        {% for item in selected[:3] %}
+        <div class="item recommendation">
+            <span class="recommendation-badge">优先阅读</span>
+            <div class="item-title">
+                <a href="{{ item.url }}" target="_blank">{{ item.title or item.full_name }}</a>
+            </div>
+            <div class="meta">{{ item.content_type }}{% if item.published %} | 📅 {{ item.published }}{% endif %}{% if item.category %} | 🏷️ {{ item.category }}{% endif %}{% if item.stars %} | ⭐ {{ item.stars }}{% endif %}</div>
+            <div class="reason">{{ item.recommendation_reason }}</div>
+            <div class="summary"><strong>深度解读：</strong>{{ item.ai_summary }}</div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="section" id="selected">
+        <div class="section-title">每日精选 ({{ selected|length }})</div>
+        {% for item in selected[3:] %}
         <div class="item">
             <div class="item-title">
-                <a href="{{ repo.url }}" target="_blank">{{ repo.full_name }}</a>
+                <a href="{{ item.url }}" target="_blank">{{ item.title or item.full_name }}</a>
             </div>
-            <div class="meta">
-                <div class="stats">
-                    <span class="stat-item">⭐ {{ repo.stars }}</span>
-                    <span class="stat-item">💻 {{ repo.language }}</span>
-                </div>
-            </div>
-            <div class="summary">
-                <strong>{{ repo.description }}</strong>
-                {% if repo.ai_summary %}
-                <br><br><em>{{ repo.ai_summary }}</em>
-                {% endif %}
-            </div>
-            {% if repo.keywords %}
-            <div class="keywords">
-                {% for kw in repo.keywords %}
-                <span class="keyword">{{ kw }}</span>
-                {% endfor %}
-            </div>
-            {% endif %}
+            <div class="meta">{{ item.content_type }}{% if item.published %} | 📅 {{ item.published }}{% endif %}{% if item.authors %} | 👥 {{ item.authors|join(', ') }}{% endif %}{% if item.category %} | 🏷️ {{ item.category }}{% endif %}{% if item.stars %} | ⭐ {{ item.stars }}{% endif %}</div>
+            <div class="summary"><strong>深度解读：</strong>{{ item.ai_summary }}</div>
+            {% if item.keywords %}<div class="keywords">{% for kw in item.keywords %}<span class="keyword">{{ kw }}</span>{% endfor %}</div>{% endif %}
         </div>
         {% endfor %}
     </div>
     {% else %}
-    <div class="section">
-        <div class="section-title">⭐ GitHub 热门项目</div>
-        <div class="no-content">今日没有匹配的热门项目</div>
-    </div>
+    <div class="section"><div class="section-title">每日精选</div><div class="no-content">今日没有匹配的新内容</div></div>
     {% endif %}
 
     <div class="footer">
@@ -165,26 +144,23 @@ class EmailSender:
 
 if __name__ == "__main__":
     # 测试邮件模板
+    test_paper = {
+        "title": "Test Paper",
+        "authors": ["Author 1", "Author 2"],
+        "published": "2026-08-24",
+        "category": "cs.RO",
+        "content_type": "论文",
+        "url": "https://arxiv.org/abs/test",
+        "ai_summary": "这是一个测试解读",
+        "recommendation_reason": "适合作为今日研究方向的入门阅读。",
+        "keywords": ["embodied", "robot"]
+    }
     test_data = {
         "date": "2026-08-24",
-        "papers": [{
-            "title": "Test Paper",
-            "authors": ["Author 1", "Author 2"],
-            "published": "2026-08-24",
-            "category": "cs.RO",
-            "url": "https://arxiv.org/abs/test",
-            "ai_summary": "这是一个测试摘要",
-            "keywords": ["embodied", "robot"]
-        }],
-        "repos": [{
-            "full_name": "test/repo",
-            "description": "Test repository",
-            "url": "https://github.com/test/repo",
-            "stars": 100,
-            "language": "Python",
-            "ai_summary": "测试项目摘要",
-            "keywords": ["llm"]
-        }]
+        "overview": "今天的测试总览。",
+        "selected": [test_paper],
+        "papers": [test_paper],
+        "repos": []
     }
     
     sender = EmailSender()
