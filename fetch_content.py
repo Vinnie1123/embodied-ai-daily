@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timedelta
 from typing import List, Dict
 import os
+import time
 from openai import OpenAI
 
 # 关键词配置
@@ -28,46 +29,49 @@ class ContentFetcher:
             api_key=os.getenv("OPENAI_API_KEY"),
             base_url=self.base_url
         )
+        self.arxiv_client = arxiv.Client(
+            page_size=20,
+            delay_seconds=3,
+            num_retries=1
+        )
     
     def fetch_arxiv_papers(self, days_back=1) -> List[Dict]:
-        """抓取 arXiv 最近的论文"""
+        """抓取 arXiv 最近的论文，遇到限流时降级而不中断整次任务。"""
         papers = []
-        
-        # 计算日期范围
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_back)
-        
-        # 搜索 cs.RO (Robotics) 和 cs.AI 分类
         categories = ["cs.RO", "cs.AI", "cs.CV", "cs.LG"]
-        
+
         for category in categories:
             search = arxiv.Search(
                 query=f"cat:{category}",
-                max_results=50,
+                max_results=20,
                 sort_by=arxiv.SortCriterion.SubmittedDate
             )
             
-            for result in search.results():
-                # 检查是否在日期范围内
-                if result.published.replace(tzinfo=None) < start_date:
-                    continue
-                
-                # 检查是否包含关键词
-                text = f"{result.title} {result.summary}".lower()
-                matched_keywords = [kw for kw in KEYWORDS if kw.lower() in text]
-                
-                if matched_keywords:
-                    papers.append({
-                        "title": result.title,
-                        "authors": [author.name for author in result.authors][:3],
-                        "summary": result.summary[:500],
-                        "url": result.entry_id,
-                        "published": result.published.strftime("%Y-%m-%d"),
-                        "keywords": matched_keywords,
-                        "category": category
-                    })
-        
-        # 去重并按发布时间排序
+            try:
+                for result in self.arxiv_client.results(search):
+                    if result.published.replace(tzinfo=None) < start_date:
+                        continue
+
+                    text = f"{result.title} {result.summary}".lower()
+                    matched_keywords = [kw for kw in KEYWORDS if kw.lower() in text]
+
+                    if matched_keywords:
+                        papers.append({
+                            "title": result.title,
+                            "authors": [author.name for author in result.authors][:3],
+                            "summary": result.summary[:500],
+                            "url": result.entry_id,
+                            "published": result.published.strftime("%Y-%m-%d"),
+                            "keywords": matched_keywords,
+                            "category": category
+                        })
+            except Exception as e:
+                print(f"Warning: arXiv {category} fetch failed: {e}")
+            finally:
+                time.sleep(3)
+
         unique_papers = {p["url"]: p for p in papers}.values()
         return sorted(unique_papers, key=lambda x: x["published"], reverse=True)
     
